@@ -197,6 +197,10 @@ void cannot_execute(int client)
 /**********************************************************************/
 void error_die(const char *sc)
 {
+    /*perror(s) 用来将上一个函数发生错误的原因输出到标准设备(stderr)。
+     * 参数 s 所指的字符串会先打印出，后面再加上错误原因字符串。
+     * 此错误原因依照全局变量errno的值来决定要输出的字符串。
+     * 包含在#include<stdio.h>头文件中*/
     perror(sc);
     exit(1);
 }
@@ -491,17 +495,44 @@ int main(void)
     int server_sock = -1;
     u_short port = 4000;
     int client_sock = -1;
+    /*struct sockaddr_in {
+        　　short int sin_family; //Address family
+        　　unsigned short int sin_port; // Port number
+        　　struct in_addr sin_addr; // Internet address
+        　　unsigned char sin_zero[8]; // Same size as struct sockaddr };
+            sin_family：指代协议族，在socket编程中只能是AF_INET
+            sin_port：存储端口号（使用网络字节顺序）
+                网络字节顺序是TCP/IP中规定好的一种数据表示格式，
+                它与具体的CPU类型、操作系统等无关，
+                从而可以保证数据在不同主机之间传输时能够被正确解释。
+                网络字节顺序采用big endian（大端）排序方式。
+                网络字节序转化为主机字节序时，一定要注意是否需要转换。
+            sin_addr：存储IP地址，使用in_addr这个数据结构
+            sin_zero：是为了让sockaddr与sockaddr_in两个数据结构保持大小相同而保留的空字节*/
     struct sockaddr_in client_name;
     socklen_t  client_name_len = sizeof(client_name);
+    //typedef unsigned long int pthread_t;
     pthread_t newthread;
-
+    //服务器端的套接字描述符
+    //如果指定端口就会以该端口来进行socket通信
     server_sock = startup(&port);
     printf("httpd running on port %d\n", port);
 
     while (1)
     {
-        client_sock = accept(server_sock,
-                (struct sockaddr *)&client_name,
+        /*struct sockaddr 
+        {
+            　　unsigned short sa_family; // address family, AF_xxx
+            　　char sa_data[14]; // 14 bytes of protocol address　
+        };*/
+        /*sa_family：是2字节的地址家族，一般都是“AF_xxx”的形式，它的值包括三种：
+         * AF_INET，AF_INET6和AF_UNSPEC。如果指定AF_INET，那么函数就不能返回任何IPV6
+         * 相关的地址信息；如果仅指定了AF_INET6，
+         * 则就不能返回任何IPV4地址信息。AF_UNSPEC则意味着函数返回的是适用于指定主机名和服务名且适合任何协议族的地址。
+         * 如果某个主机既有AAAA记录(IPV6)地址，同时又有A记录(IPV4)地址，
+         * 那么AAAA记录将作为sockaddr_in6结构返回，而A记录则作为sockaddr_in结构返回通常用的都是AF_INET。*/
+        //SOCKET accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+        client_sock = accept(server_sock,(struct sockaddr *)&client_name,
                 &client_name_len);
         if (client_sock == -1)
             error_die("accept");

@@ -54,13 +54,36 @@ void unimplemented(int);
 /**********************************************************************/
 void accept_request(void *arg)
 {
+	//pthread_create传过来的参数(void *)(intptr_t)client_sock
     int client = (intptr_t)arg;
     char buf[1024];
+	/*size_t是标准C库中定义的，应为unsigned int，在64位系统中为 
+	long unsigned int。数据类型"socklen_t"和int应该具有相同的长度，
+	否则就会破坏 BSD套接字层的填充。*/
     size_t numchars;
     char method[255];
     char url[255];
     char path[512];
     size_t i, j;
+	/*在使用这个结构体和方法时，需要引入：<sys/types.h>、<sys/stat.h>
+	struct stat这个结构体是用来描述一个linux系统文件系统中的文件属性
+	的结构。有两种方法获得一个文件的属性
+	
+	第一种是通过路径有两个函数可以得到
+	int stat(const char *path, struct stat *struct_stat);
+	int lstat(const char *path,struct stat *struct_stat);
+	两个函数的第一个参数都是文件的路径，第二个参数是struct stat的指针。
+	返回值为0，表示成功执行。执行失败是，error被自动设置对应值。
+	这两个方法区别在于stat没有处理字符链接(软链接）的能力，
+	如果一个文件是符号链接，stat会直接返回它所指向的文件的属性；
+	而lstat返回的就是这个符号链接的内容。
+	（符号连接就是软连接，软链接的内容就是一个字符串。这个字符串就是它所链接的文件的绝对路径或者相对路径）
+	
+	第二种通过文件描述符
+	int fstat(int fdp, struct stat *struct_stat);　　
+	*通过文件描述符获取文件对应的属性。fdp为文件描述符
+	*/
+	
     struct stat st;
     int cgi = 0;      /* becomes true if server decides this is a CGI
                        * program */
@@ -75,13 +98,16 @@ void accept_request(void *arg)
     }
     j=i;
     method[i] = '\0';
-
+	//#include <strings.h> int strcasecmp(cost char*s1,const char* s2);
+	//若参数s1和s2字符串相等则返回0。s1大于s2则返回大于0 的值，s1 小于s2 则返回小于0的值。
     if (strcasecmp(method, "GET") && strcasecmp(method, "POST"))
     {
         unimplemented(client);
         return;
     }
-
+	//get提交，提交的信息都显示在地址栏中。get提交，对于大数据不行，因为地址栏存储体积有限。
+	//post提交，提交的信息不显示地址栏中，显示在消息体中。post提交，可以提交大体积数据。 
+	
     if (strcasecmp(method, "POST") == 0)
         cgi = 1;
 
@@ -94,7 +120,7 @@ void accept_request(void *arg)
         i++; j++;
     }
     url[i] = '\0';
-
+	//strcasecmp忽略大小写比较字符串
     if (strcasecmp(method, "GET") == 0)
     {
         query_string = url;
@@ -110,21 +136,56 @@ void accept_request(void *arg)
 
     sprintf(path, "htdocs%s", url);
     if (path[strlen(path) - 1] == '/')
+		//extern char *strcat(char *dest, const char *src);
+		//把src所指向的字符串（包括“\0”）复制到dest所指向的字符串后面（删除*dest原来末尾的“\0”）。
         strcat(path, "index.html");
+	//stat返回值: 成功返回0，返回-1表示失败
     if (stat(path, &st) == -1) {
+		//strcmp不忽略大小写比较字符串
+		//一直用get_line读取文件，读到http头结束
         while ((numchars > 0) && strcmp("\n", buf))  /* read & discard headers */
             numchars = get_line(client, buf, sizeof(buf));
         not_found(client);
     }
+	//执行这一步代表读取到了这个文件
     else
     {
+		/*
+		S_IFMT   0170000    文件类型的位遮罩
+    	S_IFSOCK 0140000    套接字
+    	S_IFLNK 0120000     符号连接
+    	S_IFREG 0100000     一般文件
+    	S_IFBLK 0060000     区块装置
+    	S_IFDIR 0040000     目录
+    	S_IFCHR 0020000     字符装置
+    	S_IFIFO 0010000     先进先出
+​
+    	S_ISUID 04000     文件的(set user-id on execution)位
+    	S_ISGID 02000     文件的(set group-id on execution)位
+    	S_ISVTX 01000     文件的sticky位
+​
+    	S_IRUSR(S_IREAD) 00400     文件所有者具可读取权限
+    	S_IWUSR(S_IWRITE)00200     文件所有者具可写入权限
+    	S_IXUSR(S_IEXEC) 00100     文件所有者具可执行权限
+​
+    	S_IRGRP 00040             用户组具可读取权限
+    	S_IWGRP 00020             用户组具可写入权限
+    	S_IXGRP 00010             用户组具可执行权限
+​
+    	S_IROTH 00004             其他用户具可读取权限
+    	S_IWOTH 00002             其他用户具可写入权限
+    	S_IXOTH 00001             其他用户具可执行权限
+		*/
+		//是否是文件夹
         if ((st.st_mode & S_IFMT) == S_IFDIR)
             strcat(path, "/index.html");
+		//文件所有者或文件所属组或其他人 具有可执行权限
         if ((st.st_mode & S_IXUSR) ||
                 (st.st_mode & S_IXGRP) ||
                 (st.st_mode & S_IXOTH)    )
             cgi = 1;
         if (!cgi)
+			//执行这一步代表读取到了这个文件，但是不能执行
             serve_file(client, path);
         else
             execute_cgi(client, path, method, query_string);
@@ -163,8 +224,13 @@ void bad_request(int client)
 void cat(int client, FILE *resource)
 {
     char buf[1024];
-
+	/*fgets函数功能为从指定的流中读取数据，每次读取一行。
+	*其原型为：char *fgets(char *str, int n, FILE *stream);
+	*从指定的流 stream 读取一行，并把它存储在 str 所指向的字符串内。
+	*当读取 (n-1) 个字符时，或者读取到换行符时，或者到达文件末尾时，
+	*它会停止，具体视情况而定。*/
     fgets(buf, sizeof(buf), resource);
+	//feof是C语言标准库函数，其原型在stdio.h中，其功能是检测流上的文件结束符，如果文件结束，则返回非0值，否则返回0（即，文件结束：返回非0值，文件未结束，返回0值）
     while (!feof(resource))
     {
         send(client, buf, strlen(buf), 0);
@@ -197,10 +263,6 @@ void cannot_execute(int client)
 /**********************************************************************/
 void error_die(const char *sc)
 {
-    /*perror(s) 用来将上一个函数发生错误的原因输出到标准设备(stderr)。
-     * 参数 s 所指的字符串会先打印出，后面再加上错误原因字符串。
-     * 此错误原因依照全局变量errno的值来决定要输出的字符串。
-     * 包含在#include<stdio.h>头文件中*/
     perror(sc);
     exit(1);
 }
@@ -323,12 +385,19 @@ int get_line(int sock, char *buf, int size)
 
     while ((i < size - 1) && (c != '\n'))
     {
-        n = recv(sock, &c, 1, 0);
+		//recv函数仅仅是copy数据，真正的接收数据是协议来完成的
+		//int recv( _In_ SOCKET s, _Out_ char *buf, _In_ int len, _In_ int flags);
+        //len  缓冲区长度。  flags 指定调用方式。
+		//recv函数返回其实际copy的字节数。如果recv在copy时出错，那么它返回SOCKET_ERROR；如果recv函数在等待协议接收数据时网络中断了，那么它返回0。
+		n = recv(sock, &c, 1, 0);
         /* DEBUG printf("%02X\n", c); */
         if (n > 0)
         {
             if (c == '\r')
             {
+				//把flags设置为MSG_PEEK，仅把tcp buffer中的数据读取到
+				//buf中，并不把已读取的数据从tcp buffer中移除，
+				//再次调用recv仍然可以读到刚才读到的数据。
                 n = recv(sock, &c, 1, MSG_PEEK);
                 /* DEBUG printf("%02X\n", c); */
                 if ((n > 0) && (c == '\n'))
@@ -336,6 +405,7 @@ int get_line(int sock, char *buf, int size)
                 else
                     c = '\n';
             }
+			//buf中没有\r只会在结尾保存\n
             buf[i] = c;
             i++;
         }
@@ -354,6 +424,7 @@ int get_line(int sock, char *buf, int size)
 /**********************************************************************/
 void headers(int client, const char *filename)
 {
+	//这个filename是一个文件路径
     char buf[1024];
     (void)filename;  /* could use filename to determine file type */
 
@@ -403,19 +474,22 @@ void not_found(int client)
 /**********************************************************************/
 void serve_file(int client, const char *filename)
 {
+	//filename保存的是文件路径
     FILE *resource = NULL;
     int numchars = 1;
     char buf[1024];
 
     buf[0] = 'A'; buf[1] = '\0';
+	//和前边一样读取整个http头文件并不做任何操作
     while ((numchars > 0) && strcmp("\n", buf))  /* read & discard headers */
         numchars = get_line(client, buf, sizeof(buf));
-
+	//进入这一步就是因为没有执行权限，就采用读取文件的方式
     resource = fopen(filename, "r");
     if (resource == NULL)
         not_found(client);
     else
     {
+		//先返回一个文件存在的http响应 200 0k
         headers(client, filename);
         cat(client, resource);
     }
@@ -442,20 +516,62 @@ int startup(u_short *port)
     memset(&name, 0, sizeof(name));
     name.sin_family = AF_INET;
     name.sin_port = htons(*port);
+	//INADDR_ANY（地址通配符）表示这个服务器上任意一个IP地址都可以
     name.sin_addr.s_addr = htonl(INADDR_ANY);
+	/*int getsockopt(int sock, int level, int optname, 
+		void *optval, socklen_t *optlen);
+	int setsockopt(int sock, int level, int optname, const 
+		void *optval, socklen_t optlen);
+	sock：将要被设置或者获取选项的套接字。
+	level：选项所在的协议层。
+		1)SOL_SOCKET:通用套接字选项.
+		2)IPPROTO_IP:IP选项.
+		3)IPPROTO_TCP:TCP选项.
+	optname：需要访问的选项名。
+	optval：对于getsockopt()，指向返回选项值的缓冲。
+			对于setsockopt()，指向包含新选项值的缓冲。
+	optlen：对于getsockopt()，作为入口参数时，选项值的最大长度。
+			作为出口参数时，选项值的实际长度。对于setsockopt()，
+			现选项的长度。
+	成功执行时，返回0。失败返回-1*/
     if ((setsockopt(httpd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on))) < 0)  
-    {  
+    //setsockopt获取或者设置与某个套接字关联的选项。
+	{  
         error_die("setsockopt failed");
     }
+	/*struct sockaddr {
+　　unsigned short sa_family; // address family, AF_xxx 
+　　char sa_data[14]; // 14 bytes of protocol address 
+　　};*/
     if (bind(httpd, (struct sockaddr *)&name, sizeof(name)) < 0)
         error_die("bind");
+	//如果不指定端口就动态分配一个
     if (*port == 0)  /* if dynamically allocating a port */
     {
         socklen_t namelen = sizeof(name);
+		/*getsockname()函数用于获取一个套接字的名字。
+		*它用于一个已捆绑或已连接套接字s，本地地址将被返回。
+		*本调用特别适用于如下情况：未调用bind()就调用了connect()，
+		*这时唯有getsockname()调用可以获知系统内定的本地地址。
+		*在返回时，namelen参数包含了名字的实际字节数。
+		*若无错误发生，getsockname()返回0。
+		int PASCAL FAR getsockname( SOCKET s, 
+			struct sockaddr FAR* name,int FAR* namelen);
+		s：标识一个已捆绑套接口的描述字。
+		name：接收套接口的地址（名字）。
+		namelen：名字缓冲区长度。*/
         if (getsockname(httpd, (struct sockaddr *)&name, &namelen) == -1)
             error_die("getsockname");
         *port = ntohs(name.sin_port);
     }
+	
+	/*int listen( int sockfd, int backlog);
+	*sockfd：用于标识一个已捆绑未连接套接口的描述字。
+	*backlog：等待连接队列的最大长度。
+	*置服务器的流套接字处于监听状态
+	仅面向连接的流套接字
+	成功返回零 失败socket_error*/
+	
     if (listen(httpd, 5) < 0)
         error_die("listen");
     return(httpd);
@@ -495,48 +611,48 @@ int main(void)
     int server_sock = -1;
     u_short port = 4000;
     int client_sock = -1;
-    /*struct sockaddr_in {
-        　　short int sin_family; //Address family
-        　　unsigned short int sin_port; // Port number
-        　　struct in_addr sin_addr; // Internet address
-        　　unsigned char sin_zero[8]; // Same size as struct sockaddr };
-            sin_family：指代协议族，在socket编程中只能是AF_INET
-            sin_port：存储端口号（使用网络字节顺序）
-                网络字节顺序是TCP/IP中规定好的一种数据表示格式，
-                它与具体的CPU类型、操作系统等无关，
-                从而可以保证数据在不同主机之间传输时能够被正确解释。
-                网络字节顺序采用big endian（大端）排序方式。
-                网络字节序转化为主机字节序时，一定要注意是否需要转换。
-            sin_addr：存储IP地址，使用in_addr这个数据结构
-            sin_zero：是为了让sockaddr与sockaddr_in两个数据结构保持大小相同而保留的空字节*/
+	//struct sockaddr_in
+ 	//{
+	//short sin_family;/*Address family一般来说AF_INET（地址族）PF_INET（协议族）*/
+	//unsigned short sin_port;/*Port number(必须要采用网络数据格式,普通数字可以用htons()函数转换成网络数据格式的数字)*/
+	//struct in_addr sin_addr;/*IP address in network byte order（Internet address）*/
+	//unsigned char sin_zero[8];/*Same size as struct sockaddr没有实际意义,只是为了　跟SOCKADDR结构在内存中对齐*/
+	//};
     struct sockaddr_in client_name;
+	//为了方便平台移植而定义的内存类型，大小在所有平台上都是四个字节
     socklen_t  client_name_len = sizeof(client_name);
-    //typedef unsigned long int pthread_t;
+	//Linux下没有真正意义上的线程，他的实现是由进程来模拟，所以属于用户级线程位于libpthread共享库（所以线程的ID只在库中有效）
+	//Linux 实现进程的主要目的是资源独占，Linux实现线程的主要目的是资源共享，线程所有资源由进程提供
+	//同一个进程的多个线程共享同一地址空间
     pthread_t newthread;
-    //服务器端的套接字描述符
-    //如果指定端口就会以该端口来进行socket通信
+
     server_sock = startup(&port);
     printf("httpd running on port %d\n", port);
 
     while (1)
     {
-        /*struct sockaddr 
-        {
-            　　unsigned short sa_family; // address family, AF_xxx
-            　　char sa_data[14]; // 14 bytes of protocol address　
-        };*/
-        /*sa_family：是2字节的地址家族，一般都是“AF_xxx”的形式，它的值包括三种：
-         * AF_INET，AF_INET6和AF_UNSPEC。如果指定AF_INET，那么函数就不能返回任何IPV6
-         * 相关的地址信息；如果仅指定了AF_INET6，
-         * 则就不能返回任何IPV4地址信息。AF_UNSPEC则意味着函数返回的是适用于指定主机名和服务名且适合任何协议族的地址。
-         * 如果某个主机既有AAAA记录(IPV6)地址，同时又有A记录(IPV4)地址，
-         * 那么AAAA记录将作为sockaddr_in6结构返回，而A记录则作为sockaddr_in结构返回通常用的都是AF_INET。*/
-        //SOCKET accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
-        client_sock = accept(server_sock,(struct sockaddr *)&client_name,
+		/*SOCKET accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+		*服务器调用accept函数从处于监听状态的流套接字sd的客户连接队列中
+		*取出排在最前面的的一个客户连接请求，
+		*并创建一个与sd同类的新套接字描述符与客户端套接字创建连接通道。*/
+        client_sock = accept(server_sock,
+                (struct sockaddr *)&client_name,
                 &client_name_len);
         if (client_sock == -1)
             error_die("accept");
-        /* accept_request(&client_sock); */
+        /* accept_request(&client_sock);
+		int pthread_create(pthread_t * thread, const pthread_arrt_t* attr
+			,void*(*start_routine)(void *), void* arg);
+		（1）thread参数是新线程的标识符,为一个整型。
+
+		（2）attr参数用于设置新线程的属性。
+			给传递NULL表示设置为默认线程属性。
+
+		（3）start_routine和arg参数分别指定新线程将运行的函数和参数。
+			start_routine返回时,这个线程就退出了
+
+		（4）返回值:成功返回0,失败返回错误号。*/
+		//intptr_t是为了保存指针变量的，由于不同位数的机器指针变量所占字节数不同。为了保证平台的通用性
         if (pthread_create(&newthread , NULL, (void *)accept_request, (void *)(intptr_t)client_sock) != 0)
             perror("pthread_create");
     }

@@ -185,7 +185,8 @@ void accept_request(void *arg)
                 (st.st_mode & S_IXOTH)    )
             cgi = 1;
         if (!cgi)
-			//执行这一步代表读取到了这个文件，但是不能执行
+			//执行这一步代表这个文件存在，但是不能执行
+			//于是就换成读取文件内容再发送
             serve_file(client, path);
         else
             execute_cgi(client, path, method, query_string);
@@ -279,6 +280,8 @@ void execute_cgi(int client, const char *path,
     char buf[1024];
     int cgi_output[2];
     int cgi_input[2];
+	//在头文件#include <bits/types.h>
+	//pid_t等同于int
     pid_t pid;
     int status;
     int i;
@@ -297,6 +300,11 @@ void execute_cgi(int client, const char *path,
         {
             buf[15] = '\0';
             if (strcasecmp(buf, "Content-Length:") == 0)
+				/*atoi (表示 ascii to integer)是把字符串转换成整型数的一个函数，
+				应用在计算机程序和办公软件中。int atoi(const char *nptr) 
+				函数会扫描参数 nptr字符串，会跳过前面的空白字符
+				（例如空格，tab缩进）等。
+				如果 nptr不能转换成 int 或者 nptr为空字符串，那么将返回 0 */
                 content_length = atoi(&(buf[16]));
             numchars = get_line(client, buf, sizeof(buf));
         }
@@ -309,7 +317,10 @@ void execute_cgi(int client, const char *path,
     {
     }
 
-
+	//pipe所需头文件 #include<unistd.h>
+	//pipe函数定义中的fd参数是一个大小为2的一个数组类型的指针。
+	//该函数成功时返回0，并将一对打开的文件描述符值填入fd参数指向的数组。
+	//失败时返回 -1并设置errno。
     if (pipe(cgi_output) < 0) {
         cannot_execute(client);
         return;

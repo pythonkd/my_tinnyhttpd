@@ -341,12 +341,29 @@ void execute_cgi(int client, const char *path,
         char meth_env[255];
         char query_env[255];
         char length_env[255];
-
+		/*#include <unistd.h>
+		int dup(int oldfd);
+		dup用来复制参数oldfd所指的文件描述符。
+		当复制成功是，返回最小的尚未被使用过的文件描述符，
+		若有错误则返回-1.错误代码存入errno中返回的新文件描述符和参数oldfd指向同一个文件，
+		这两个描述符共享同一个数据结构，
+		共享所有的锁定，读写指针和各项全现或标志位。
+		假如oldfd的值为1，当前文件描述符的最小值为3，那么新描述符3指向描述符１所拥有的文件表项。*/
+		//从shell中运行一个进程，默认会有3个文件描述符存在(0、１、2), 0与进程的标准输入相关联，１与进程的标准输出相关联，2与进程的标准错误输出相关联，
+		/*dup2定义是int dup2( int filedes, int filedes2 ) 
+		也是返回一个文件描述符，但是呢这个文件描述符你可以指定，
+		也就是它的第二个参数filedes2，
+		如果fiedes2文件描述符指定的文件已经被打开，
+		那么就先把filedes2指定的文件关闭，
+		同样还是返回文件描述符这个文件描述符可以用来打开filedes1指定的文件*/
         dup2(cgi_output[1], STDOUT);
         dup2(cgi_input[0], STDIN);
+		//#include <unistd.h>  int close(int fd); 返回值：成功返回0，出错返回-1并设置errno
+		//参数fd是要关闭的文件描述符。
         close(cgi_output[0]);
         close(cgi_input[1]);
         sprintf(meth_env, "REQUEST_METHOD=%s", method);
+		//putenv  就是把meth_env添加到环境变量里，且这个环境变量只在这个子进程里有用
         putenv(meth_env);
         if (strcasecmp(method, "GET") == 0) {
             sprintf(query_env, "QUERY_STRING=%s", query_string);
@@ -356,7 +373,14 @@ void execute_cgi(int client, const char *path,
             sprintf(length_env, "CONTENT_LENGTH=%d", content_length);
             putenv(length_env);
         }
-        execl(path, NULL);
+		//Linux下头文件 #include <unistd.h> 函数定义 int execl(const char *path, const char *arg, ...);
+        /*第一参数path字符指针所指向要执行的文件路径， 
+		接下来的参数代表执行该文件时传递的参数列表：argv[0],argv[1]... 
+		最后一个参数须用空指针NULL作结束。*/
+		// 例如执行/bin目录下的ls, 第一参数为程序名ls, 第二个参数为"-al", 第三个参数为"/etc/"
+		//execl("/bin/ls","ls","-al","/etc/",NULL)；
+		// 执行：  ./execl   结果：-rw-r--r-- 1 root root 2218 Jan 13 11:36 /etc/passwd
+		execl(path, NULL);
         exit(0);
     } else {    /* parent */
         close(cgi_output[1]);
